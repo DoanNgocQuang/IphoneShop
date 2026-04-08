@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="vi">
+    <script>
+        const savedTheme = localStorage.getItem('app_theme');
+        if (savedTheme) {
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        }
+    </script>
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Admin - iPhone Shop</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="topbar">
+        <div class="wrap">
+            <div class="brand">
+                <a href="#">IPhone Shop - Quản Trị</a>
+            </div>
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <button class="theme-toggle" onclick="doiGiaoDien()">🌓</button>
+                
+                <span id="adminName" style="color: var(--muted); font-size: 0.9rem;">Đang tải...</span>
+                <button class="btn ghost small" onclick="logout()">Đăng xuất</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="wrap main">
+        
+        <div class="sidebar">
+            <div class="nav__title">ĐIỀU HƯỚNG</div>
+            <a href="#" class="nav__item active" onclick="showDashboard(this)">Tổng quan</a>
+            <a href="#" class="nav__item" onclick="fetchProducts(this)">Sản phẩm</a>
+            <a href="#" class="nav__item" onclick="fetchUsers(this)">Người dùng</a>
+        </div>
+
+        <div class="content">
+            <div class="card" id="mainContent">
+                <h2 class="card__title">Bảng Điều Khiển Quản Trị</h2>
+                <p style="color: var(--muted); margin-bottom: 24px;">Chọn tính năng để bắt đầu quản lý cửa hàng của bạn.</p>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                    <a href="#" class="action" onclick="fetchProducts(null)">
+                        <h3>📱 Quản lý Sản phẩm</h3>
+                        <p>Xem, thêm, sửa, xóa các dòng điện thoại iPhone.</p>
+                    </a>
+                    <a href="#" class="action action-admin" onclick="fetchUsers(null)">
+                        <span class="badge-admin">ADMIN ONLY</span>
+                        <h3>👤 Quản lý Người dùng</h3>
+                        <p>Kiểm soát tài khoản khách hàng và quản trị viên.</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('jwt_token');
+        if (!token) window.location.href = 'login.html';
+
+        async function loadProfile() {
+            try {
+                const response = await fetch('http://localhost:8080/api/profile/me', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if(response.ok) {
+                    const data = await response.json();
+                    document.getElementById('adminName').innerText = "Xin chào, " + (data.fullName || data.email);
+                }
+            } catch(e) {}
+        }
+        loadProfile();
+
+        // Đổi màu menu active
+        function setActive(element) {
+            if(!element) return;
+            document.querySelectorAll('.nav__item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+        }
+
+        function showDashboard(elem) {
+            setActive(elem);
+            window.location.reload(); // Cách nhanh nhất để quay về trang tổng quan
+        }
+
+        async function fetchProducts(elem) {
+            setActive(elem);
+            const content = document.getElementById('mainContent');
+            content.innerHTML = `<h2 class="card__title">Đang tải dữ liệu...</h2>`;
+            
+            try {
+                const response = await fetch('http://localhost:8080/api/iphones', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    let html = `<h2 class="card__title">Danh sách Sản phẩm</h2>
+                                <div class="table-wrapper">
+                                    <table>
+                                        <thead><tr><th>ID</th><th>Tên iPhone</th><th>Giá (VND)</th></tr></thead>
+                                        <tbody>`;
+                    data.forEach(item => {
+                        html += `<tr><td>${item.id}</td><td>${item.name}</td><td>${item.price}</td></tr>`;
+                    });
+                    html += `</tbody></table></div>`;
+                    content.innerHTML = html;
+                } else {
+                    content.innerHTML = `<div class="flash danger">Lỗi lấy dữ liệu</div>`;
+                }
+            } catch (error) { content.innerHTML = `<div class="flash danger">Lỗi kết nối Backend</div>`; }
+        }
+
+        async function fetchUsers(elem) {
+            setActive(elem);
+            const content = document.getElementById('mainContent');
+            content.innerHTML = `<h2 class="card__title">Đang tải danh sách...</h2>`;
+            
+            try {
+                const response = await fetch('http://localhost:8080/api/admin/users', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    content.innerHTML = `<h2 class="card__title">Tài khoản Hệ thống</h2>
+                                         <pre style="background: var(--bg); padding: 16px; border-radius: 10px; border: 1px solid var(--border); overflow-x: auto;">${JSON.stringify(data, null, 2)}</pre>`;
+                } else {
+                    content.innerHTML = `<div class="flash danger">Bạn không có quyền xem trang này!</div>`;
+                }
+            } catch (error) {}
+        }
+        // HÀM ĐỔI GIAO DIỆN SÁNG/TỐI
+        function doiGiaoDien() {
+            const htmlTag = document.documentElement; 
+            if (htmlTag.getAttribute('data-theme') === 'dark') {
+                htmlTag.setAttribute('data-theme', 'light');
+                localStorage.setItem('app_theme', 'light'); // Lưu vào bộ nhớ
+            } else {
+                htmlTag.setAttribute('data-theme', 'dark');
+                localStorage.setItem('app_theme', 'dark'); // Lưu vào bộ nhớ
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('jwt_token');
+            window.location.href = 'login.html';
+        }
+    </script>
+</body>
+</html>
