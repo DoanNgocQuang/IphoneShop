@@ -39,6 +39,12 @@ public class IphoneController {
         }
     }
 
+    // API Sản phẩm bán chạy (public, không cần đăng nhập)
+    @GetMapping("/best-sellers")
+    public ResponseEntity<List<MyIphoneShop.demo.dto.BestSellerResponse>> getBestSellers(
+            @RequestParam(defaultValue = "8") int limit) {
+        return ResponseEntity.ok(iphoneService.getBestSellers(limit));
+    }
     @GetMapping("/search-and-filter")
     public ResponseEntity<List<IphoneResponse>> searchAndFilterIphones(
             @RequestParam(required = false) String keyword,

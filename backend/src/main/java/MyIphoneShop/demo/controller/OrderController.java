@@ -27,8 +27,8 @@ public class OrderController {
             @RequestParam PaymentMethod paymentMethod, // Đưa ra đây
             Principal principal) {
         try {
-            // 1. Tự động lấy Email khách hàng từ Token
-            String email = principal.getName();
+            // 1. Lấy Email nếu khách hàng có đăng nhập (Guest thì email = null)
+            String email = principal != null ? principal.getName() : null;
 
             // 2. Truyền ĐỦ 3 THAM SỐ xuống Service
             String message = orderService.checkout(email, request, paymentMethod);

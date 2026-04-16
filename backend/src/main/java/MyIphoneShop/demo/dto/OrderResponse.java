@@ -15,4 +15,7 @@ public class OrderResponse {
     private LocalDateTime orderDate;
     private String shippingAddress;
     private String note;
+    
+    private String voucherCode;
+    private BigDecimal discountAmount;
 }

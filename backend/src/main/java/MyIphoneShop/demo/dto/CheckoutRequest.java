@@ -12,6 +12,12 @@ public class CheckoutRequest {
     private String note;
     private PaymentMethod paymentMethod;
 
+    private String guestName;
+    private String guestPhone;
+    private String guestEmail;
+
+    private String voucherCode;
+
     // THÊM DÒNG NÀY ĐỂ HỨNG GIỎ HÀNG TỪ WEB
     private List<OrderItemRequest> items;
 

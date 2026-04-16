@@ -38,6 +38,21 @@ public class Order {
     @Column(name = "note", columnDefinition = "TEXT")
     private String note;
 
+    @Column(name = "guest_name")
+    private String guestName;
+
+    @Column(name = "guest_phone")
+    private String guestPhone;
+
+    @Column(name = "guest_email")
+    private String guestEmail;
+
+    @Column(name = "voucher_code")
+    private String voucherCode;
+
+    @Column(name = "discount_amount", precision = 15, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
     @PrePersist
     protected void onCreate() { this.orderDate = LocalDateTime.now(); }
 }

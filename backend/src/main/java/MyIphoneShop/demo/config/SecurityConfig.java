@@ -42,8 +42,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
                         .requestMatchers("/api/cart/**").hasRole("CUSTOMER")
-                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/orders/checkout")
-                        .hasRole("CUSTOMER")
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/orders/checkout").permitAll()
                         .requestMatchers("/api/orders/my-orders").hasRole("CUSTOMER")
 
                         .anyRequest().authenticated())

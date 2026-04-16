@@ -1,5 +1,6 @@
 package MyIphoneShop.demo.service;
 
+import MyIphoneShop.demo.dto.BestSellerResponse;
 import MyIphoneShop.demo.dto.CreateIphoneRequest;
 import MyIphoneShop.demo.dto.IphoneResponse;
 import MyIphoneShop.demo.dto.UpdateIphoneRequest;
@@ -14,7 +15,9 @@ import MyIphoneShop.demo.repository.CategoryRepository;
 import MyIphoneShop.demo.repository.IphoneImageRepository;
 import MyIphoneShop.demo.repository.IphoneRepository;
 import MyIphoneShop.demo.repository.IphoneVariantRepository;
+import MyIphoneShop.demo.repository.OrderDetailRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -37,6 +41,7 @@ public class IphoneService {
     private final CategoryRepository categoryRepository;
     private final IphoneVariantRepository iphoneVariantRepository;
     private final IphoneImageRepository iphoneImageRepository;
+    private final OrderDetailRepository orderDetailRepository;
 
     public List<IphoneResponse> getAllActiveIphones() {
         List<Iphone> iphoneList = iphoneRepository.findByIsDeletedFalse();
@@ -273,5 +278,51 @@ public class IphoneService {
                 })
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Lấy danh sách sản phẩm bán chạy nhất (Top N)
+     * Truy vấn bảng OrderDetail, gom nhóm theo iPhone ID, tính tổng số lượng bán ra
+     */
+    public List<BestSellerResponse> getBestSellers(int limit) {
+        List<Object[]> topSelling = orderDetailRepository.findTopSellingIphoneIds(PageRequest.of(0, limit));
+        List<BestSellerResponse> result = new ArrayList<>();
+
+        for (Object[] row : topSelling) {
+            Integer iphoneId = (Integer) row[0];
+            Long totalSold = (Long) row[1];
+
+            Iphone iphone = iphoneRepository.findById(iphoneId).orElse(null);
+            if (iphone == null || iphone.getIsDeleted()) continue;
+
+            BestSellerResponse dto = new BestSellerResponse();
+            dto.setIphoneId(iphone.getIphoneId());
+            dto.setName(iphone.getName());
+            dto.setDescription(iphone.getDescription());
+            dto.setTotalSold(totalSold);
+
+            if (iphone.getCategory() != null) {
+                dto.setCategoryName(iphone.getCategory().getName());
+            }
+
+            // Lấy ảnh
+            List<IphoneImage> images = iphoneImageRepository.findByIphone_IphoneId(iphoneId);
+            if (!images.isEmpty()) {
+                dto.setImageUrls(images.stream().map(IphoneImage::getImageUrl).collect(Collectors.toList()));
+            }
+
+            // Lấy giá thấp nhất từ các variant đang còn bán
+            if (iphone.getVariants() != null) {
+                iphone.getVariants().stream()
+                        .filter(v -> !v.getIsDeleted())
+                        .map(IphoneVariant::getPrice)
+                        .min(BigDecimal::compareTo)
+                        .ifPresent(dto::setPrice);
+            }
+
+            result.add(dto);
+        }
+
+        return result;
     }
 }

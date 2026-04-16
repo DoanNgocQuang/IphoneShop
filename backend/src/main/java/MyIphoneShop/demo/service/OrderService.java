@@ -31,24 +31,30 @@ public class OrderService {
     private final PaymentRepository paymentRepository;
     private final IphoneVariantRepository variantRepository;
     private final IphoneImageRepository iphoneImageRepository;
+    private final VoucherRepository voucherRepository;
 
     @Transactional
     public String checkout(String email, CheckoutRequest request, PaymentMethod paymentMethod) {
 
-        // 1. Tìm User bằng email
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng!"));
+        // 1. Tìm User bằng email (nếu có đăng nhập)
+        User user = null;
+        if (email != null) {
+            user = userRepository.findByEmail(email).orElse(null);
+        }
 
         // 2. Kiểm tra xem Web có gửi danh sách sản phẩm lên không
         if (request.getItems() == null || request.getItems().isEmpty()) {
             throw new RuntimeException("Giỏ hàng trên web đang trống, không thể đặt hàng!");
         }
 
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal subTotal = BigDecimal.ZERO;
 
         // 3. Tạo Đơn hàng (Lưu trước để lấy mã Order ID)
         Order order = new Order();
         order.setUser(user);
+        order.setGuestName(request.getGuestName());
+        order.setGuestPhone(request.getGuestPhone());
+        order.setGuestEmail(request.getGuestEmail());
         order.setShippingAddress(request.getShippingAddress());
         order.setNote(request.getNote());
         order.setStatus(OrderStatus.PENDING);
@@ -79,7 +85,7 @@ public class OrderService {
 
             // Cộng tiền
             BigDecimal itemTotal = variant.getPrice().multiply(BigDecimal.valueOf(itemReq.getQuantity()));
-            totalAmount = totalAmount.add(itemTotal);
+            subTotal = subTotal.add(itemTotal);
 
             // Lưu chi tiết vào bảng OrderDetail
             OrderDetail orderDetail = new OrderDetail();
@@ -93,7 +99,60 @@ public class OrderService {
             orderDetailRepository.save(orderDetail);
         }
 
+        BigDecimal discount = BigDecimal.ZERO;
+        String appliedVoucherCode = null;
+
+        // 4.5. Xử lý Voucher (CHỈ DÀNH CHO KHÁCH CÓ USER VÀ CÓ NHẬP VOUCHER)
+        if (user != null && request.getVoucherCode() != null && !request.getVoucherCode().trim().isEmpty()) {
+            Voucher voucher = voucherRepository.findByCode(request.getVoucherCode().trim())
+                    .orElseThrow(() -> new RuntimeException("Mã giảm giá không tồn tại!"));
+            
+            if (!voucher.getIsActive()) {
+                throw new RuntimeException("Mã giảm giá đã bị khóa!");
+            }
+            
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
+            if (voucher.getValidFrom() != null && now.isBefore(voucher.getValidFrom())) {
+                throw new RuntimeException("Mã giảm giá chưa đến ngày áp dụng!");
+            }
+            if (voucher.getValidTo() != null && now.isAfter(voucher.getValidTo())) {
+                throw new RuntimeException("Mã giảm giá đã hết hạn!");
+            }
+
+            if (voucher.getUsageLimit() != null && voucher.getUsedCount() >= voucher.getUsageLimit()) {
+                throw new RuntimeException("Mã giảm giá đã hết lượt sử dụng!");
+            }
+
+            if (voucher.getMinOrderValue() != null && subTotal.compareTo(voucher.getMinOrderValue()) < 0) {
+                throw new RuntimeException("Đơn hàng chưa đạt giá trị tối thiểu " + voucher.getMinOrderValue() + " để áp dụng mã này!");
+            }
+
+            // Tính tiền giảm giá
+            if (voucher.getDiscountPercent() != null) {
+                BigDecimal potentialDiscount = subTotal.multiply(voucher.getDiscountPercent()).divide(BigDecimal.valueOf(100));
+                if (voucher.getMaxDiscount() != null && potentialDiscount.compareTo(voucher.getMaxDiscount()) > 0) {
+                    discount = voucher.getMaxDiscount();
+                } else {
+                    discount = potentialDiscount;
+                }
+            } else if (voucher.getMaxDiscount() != null) {
+                discount = voucher.getMaxDiscount();
+            }
+
+            // Tăng lượt dùng lên 1
+            voucher.setUsedCount(voucher.getUsedCount() + 1);
+            voucherRepository.save(voucher);
+            appliedVoucherCode = voucher.getCode();
+        }
+
+        BigDecimal totalAmount = subTotal.subtract(discount);
+        if (totalAmount.compareTo(BigDecimal.ZERO) < 0) {
+            totalAmount = BigDecimal.ZERO;
+        }
+
         // Cập nhật lại tổng tiền chuẩn xác cho đơn hàng
+        savedOrder.setDiscountAmount(discount);
+        savedOrder.setVoucherCode(appliedVoucherCode);
         savedOrder.setTotalAmount(totalAmount);
         orderRepository.save(savedOrder);
 
@@ -105,13 +164,15 @@ public class OrderService {
         payment.setStatus(PaymentStatus.UNPAID);
         paymentRepository.save(payment);
 
-        // 6. Tự động dọn dẹp Giỏ hàng cũ trong Database (để đồng bộ)
-        cartRepository.findByUser_UserId(user.getUserId()).ifPresent(cart -> {
-            List<CartDetail> cartDetails = cartDetailRepository.findByCart_CartId(cart.getCartId());
-            if (!cartDetails.isEmpty()) {
-                cartDetailRepository.deleteAll(cartDetails);
-            }
-        });
+        // 6. Tự động dọn dẹp Giỏ hàng cũ trong Database (Nếu khách có Đăng nhập)
+        if (user != null) {
+            cartRepository.findByUser_UserId(user.getUserId()).ifPresent(cart -> {
+                List<CartDetail> cartDetails = cartDetailRepository.findByCart_CartId(cart.getCartId());
+                if (!cartDetails.isEmpty()) {
+                    cartDetailRepository.deleteAll(cartDetails);
+                }
+            });
+        }
 
         // 7. Tạo mã QR Thanh toán (Nếu khách chọn QR)
         if (paymentMethod == PaymentMethod.QR) {
@@ -161,9 +222,12 @@ public class OrderService {
             dto.setCustomerName(order.getUser().getFullName());
             dto.setCustomerEmail(order.getUser().getEmail());
         } else {
-            dto.setCustomerName("Khách vãng lai");
+            dto.setCustomerName(order.getGuestName() != null ? order.getGuestName() : "Khách vãng lai");
+            dto.setCustomerEmail(order.getGuestEmail());
         }
         dto.setTotalAmount(order.getTotalAmount());
+        dto.setVoucherCode(order.getVoucherCode());
+        dto.setDiscountAmount(order.getDiscountAmount());
         dto.setStatus(order.getStatus());
         dto.setOrderDate(order.getOrderDate());
         dto.setShippingAddress(order.getShippingAddress());
